@@ -1,0 +1,37 @@
+# Three limiter nodes sharing one Redis, behind an nginx round-robin load balancer.
+#   docker compose up --build
+#   for i in $(seq 1 8); do curl -s -o /dev/null -w "%{http_code} " -H "X-Client-Id: alice" localhost:8080/demo/hello; done
+# The "demo" rule allows a burst of 5 in total, no matter which node serves each request.
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 10
+
+  node1: &node
+    build: .
+    environment:
+      RL_MODE: REDIS
+      REDIS_HOST: redis
+      RL_FAILURE_MODE: LOCAL_FALLBACK
+      RL_FAILURE_EXPECTED_NODES: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports: ["8081:8080"]
+  node2:
+    <<: *node
+    ports: ["8082:8080"]
+  node3:
+    <<: *node
+    ports: ["8083:8080"]
+
+  lb:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./scripts/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on: [node1, node2, node3]
+    ports: ["8080:80"]

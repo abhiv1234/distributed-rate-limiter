@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Build and test (unit + Redis integration)
+        run: mvn -B verify
+        env:
+          REDIS_HOST: localhost
+          REDIS_PORT: "6379"
+      - name: Distributed correctness check (4 nodes, shared key)
+        run: java -cp target/classes dev.ratelimiter.bench.DistributedCorrectnessCheck --nodes 4 --threads 8 --seconds 5
+      - name: Quick benchmark
+        run: java -cp target/classes dev.ratelimiter.bench.Benchmark --mode local,redis --threads 1,4 --keys 1,1000 --seconds 2 --warmup 1
